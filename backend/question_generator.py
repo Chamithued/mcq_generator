@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from groq import Groq
 
 from backend.schemas import Quiz
+from backend.question_validator import validate_quiz
 
 
 load_dotenv()
@@ -58,7 +59,7 @@ QUIZ_SCHEMA = {
 }
 
 
-def generate_quiz(scope: str) -> Quiz:
+def _generate_quiz_once(scope: str) -> Quiz:
 
     api_key = os.getenv("GROQ_API_KEY")
 
@@ -200,9 +201,72 @@ def generate_quiz(scope: str) -> Quiz:
                 "Duplicate answer options found."
             )
 
+    # ==========================================
+    # AI CORRECTNESS VALIDATION
+    # ==========================================
+
+    is_valid = validate_quiz(
+        scope=scope,
+        quiz=quiz
+    )
+
+    if not is_valid:
+
+        raise ValueError(
+            "Generated quiz failed "
+            "AI correctness validation."
+        )
+
     logger.info(
-        "Successfully generated %d AI questions",
+        "Successfully generated and validated "
+        "%d AI questions",
         len(quiz.questions)
     )
 
     return quiz
+
+
+# ==========================================
+# GENERATE QUIZ WITH LIMITED RETRIES
+# ==========================================
+
+def generate_quiz(scope: str) -> Quiz:
+
+    max_attempts = 3
+
+    for attempt in range(
+        1,
+        max_attempts + 1
+    ):
+
+        logger.info(
+            "Quiz generation attempt %d/%d",
+            attempt,
+            max_attempts
+        )
+
+        try:
+
+            quiz = _generate_quiz_once(
+                scope
+            )
+
+            logger.info(
+                "Quiz accepted on attempt %d",
+                attempt
+            )
+
+            return quiz
+
+        except ValueError as error:
+
+            logger.warning(
+                "Quiz attempt %d rejected: %s",
+                attempt,
+                error
+            )
+
+    raise ValueError(
+        "Could not generate a valid quiz "
+        "after 3 attempts."
+    )
